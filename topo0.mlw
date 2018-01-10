@@ -1,0 +1,361 @@
+theory Graph
+
+  use export int.Int
+  use set.Fset as S
+  use map.Map as M
+
+  (* the graph is defined by a set of vertices and a set of edges *)
+  type vertex
+  type graph
+
+  function vertices graph: S.set vertex
+
+  function edges graph: S.set (vertex , vertex)
+
+  axiom edges_use_vertices:
+  forall g:graph. forall x y:vertex.
+    S.mem (x,y) (edges g) -> (S.mem x (vertices g) /\ S.mem y (vertices g))
+
+  (** direct predecessors *)
+  function preds graph vertex: S.set vertex
+
+  axiom preds_def:  forall g:graph. forall v:vertex. forall u:vertex.
+   S.mem (u,v) (edges g) <-> S.mem u (preds g v)
+
+  (** direct successors *)
+  function succs graph vertex: S.set vertex
+  axiom succs_def:  forall g:graph. forall v:vertex. forall u:vertex.
+   S.mem (u,v) (edges g) <-> S.mem v (succs g u)
+
+  type tsort = M.map vertex int
+
+  predicate sort (g: graph) (tsort:tsort) =
+    (* Result in interval [0;S.cardinal (vertices g)[ *)
+    true
+    /\
+    (* Edges are well ordered *)
+    true
+    /\
+    (* Injectivity *)
+    true
+
+
+  type order = M.map int vertex
+
+  predicate topological_sort (g: graph) (order: order) (tsort: tsort) =
+    (* order and tsort are in bijection *)
+    (* ... order (tsort v) = v *)
+    true /\
+    (* ... tsort (order v) = v *)
+    true /\
+    (* tsort is a good sorting *)
+    sort g tsort /\
+    (* corollary hard to prove: ordered elements are vertices of the graph  *)
+    true
+
+  lemma topological_sort_corrolaries:
+      forall g. forall order. forall tsort.
+       topological_sort g order tsort ->
+        (* no backward edges *)
+        (forall i, j: int.
+        0 <= i <= j < S.cardinal (vertices g) ->
+        not (S.mem (M.get order j, M.get order i) (edges g)))
+
+end
+
+theory Path
+  use import Graph
+  use import list.List
+  use import list.Length
+  use set.Fset as S
+
+  type path = list vertex
+
+  predicate path_to  (g : graph) (p : path) (to_: vertex) =
+    match p with
+    | Nil -> false
+    | Cons a l ->
+      match l with
+      | Nil -> S.mem (a,to_) (edges g)
+      | Cons b _ -> S.mem (a,b) (edges g) /\ path_to g l to_
+      end
+    end
+
+  predicate cycle_in (g: graph) =
+    exists p. exists v. path_to g (Cons v p) v
+
+end
+
+module TestDefinition
+  use import Graph
+  use import Path
+  use import list.List
+
+  lemma pred_smaller:
+     true
+
+  lemma no_direct_cycle1:
+     true
+
+  lemma no_direct_cycle2:
+     true
+
+
+  let rec lemma path_ordered (g:graph) (tsort:tsort) (p:path) (v1 v2:vertex)
+   requires { true }
+   requires { true }
+   ensures  { true }
+   variant { p }
+   =
+   ()
+
+ lemma no_cycle: true
+
+end
+
+module Hashtbl
+
+  use import map.Map
+  use import set.Fset as S
+
+  type key
+
+  type t 'a model { mutable contents: map key 'a;
+                    mutable defined: set key;
+                  }
+
+  function ([]) (h: t 'a) (k: key) : 'a = Map.([]) h.contents k
+
+  val create () : t 'a ensures { result.defined = S.empty }
+
+  val clear (h: t 'a) : unit writes {h} ensures { h.defined = S.empty }
+
+  val add (h: t 'a) (k: key) (v: 'a) : unit writes {h}
+    ensures { h.contents = (old h.contents[k<-v]) }
+    ensures { h.defined = S.add k (old h.defined) }
+
+  val mem (h: t 'a) (k: key) : bool
+    ensures { result = (S.mem k h.defined) }
+
+  val find (h: t 'a) (k: key) : 'a
+    requires { S.mem k h.defined }
+    ensures  { result = h[k] }
+
+  val remove (h: t 'a) (k: key) : unit writes {h}
+    ensures { h.defined = S.remove k (old h.defined) }
+
+  val size (h: t 'a) : int
+    ensures { result = S.cardinal h.defined }
+
+end
+
+(** Topological sorting by depth-first search using preds *)
+module Topo
+
+  use import ref.Ref
+  use import Graph
+  use import Path
+  use import list.List
+  use import list.Length
+  use set.Fset as S
+  use map.Map as M
+  clone import Hashtbl as H with type key = vertex
+  use map.Const
+
+  type marked = (S.set vertex)
+
+  exception Cycle_found
+
+  predicate inv (g:graph) (m:H.t int) =
+    true
+
+  let rec dfs (g:graph) (v:vertex)
+              (seen:marked) (tsort:H.t int)
+              : unit
+    requires { inv g tsort }
+    requires { true }
+    requires { true }
+    requires { true }
+    requires { true }
+    diverges
+    ensures { true }
+    ensures { true }
+    ensures { true }
+    ensures { inv g tsort }
+    ensures { true }
+    raises  { Cycle_found -> true  }
+   =
+  'Init:
+   if S.mem v seen then raise Cycle_found;
+   if not (H.mem tsort v) then begin
+  'Init_loop:
+    begin
+     let p = ref (preds g v) in
+     let seen' = S.add v seen in
+     while not (S.is_empty !p) do
+      invariant { inv g tsort }
+      invariant { true }
+      invariant { true }
+      invariant { true }
+      invariant { true }
+      let u = S.choose !p in
+      dfs g u seen' tsort;
+      p := S.remove u !p
+      done;
+    end;
+     H.add tsort v (H.size tsort)
+    end
+
+
+    let topo_tsort (g:graph): H.t int
+      raises  { Cycle_found -> true  }
+      ensures { sort g result.contents }
+      ensures { S.(==) result.defined (vertices g) }
+      diverges
+      =
+    'Init:
+      let tsort = H.create () in
+      let p = ref (vertices g) in
+      while not (S.is_empty !p) do
+        invariant { inv g tsort }
+        invariant { true }
+        invariant { true }
+        invariant { true }
+        let u = S.choose !p in
+        dfs g u (S.empty) tsort;
+        p := S.remove u !p
+     done;
+     tsort
+
+    use import array.Array
+
+    type topo = {
+      order: array vertex;
+      tsort: H.t int
+    }
+
+
+    let topo (g:graph): topo
+      raises  { Cycle_found -> true }
+      requires { not (S.is_empty (vertices g)) }
+      ensures { topological_sort g result.order.elts result.tsort.contents }
+      ensures { S.(==) result.tsort.defined (vertices g) }
+      ensures { result.order.length = S.cardinal (vertices g) }
+      diverges
+     =
+      let tsort = topo_tsort g in
+      let order = Array.make (S.cardinal (vertices g)) (S.choose (vertices g)) in
+      let p = ref (vertices g) in
+      while not (S.is_empty !p) do
+        invariant { true }
+        invariant { true }
+        invariant { true }
+        invariant { true }
+        invariant { true }
+        invariant { true }
+        let u = S.choose !p in
+        order[H.find tsort u] <- u;
+        p := S.remove u !p;
+     done;
+     {order = order; tsort = tsort}
+
+end
+
+theory Dominator
+  use import Graph
+  use import list.List
+  use import list.Length
+  use import list.Elements
+  use set.Fset as S
+  use import Path
+
+  predicate domine (g:graph) (root x y:vertex) =
+   y <> root /\
+   forall p. path_to g (Cons root p) y -> S.mem x (S.add root (elements p))
+
+  (** immediate dominator *)
+  predicate idomine (g:graph) (root x y:vertex) =
+   domine g root x y /\ (forall x'. x' <> x -> domine g root x' y -> domine g root x' x)
+
+end
+
+module Dominators
+
+  use import ref.Ref
+  use import Graph
+  use import Path
+  use import Dominator
+  use import list.List
+  use import list.Length
+  use import list.Elements
+  use import list.Append
+  use set.Fset as S
+  use map.Map as M
+  use map.Const
+  use import array.Array
+  use import Topo
+
+  predicate not_disjoint (s1 s2: S.set vertex) =
+   not (S.is_empty (S.inter s1 s2))
+
+  lemma not_disjoint_mem:
+    forall s1 s2: S.set vertex. not_disjoint s1 s2 <-> (exists x. S.mem x s1 /\ S.mem x s2)
+
+ lemma not_disjoint_singleton:
+    forall s1: S.set vertex. forall x: vertex. not_disjoint s1 (S.singleton x) <-> S.mem x s1
+
+  exception Root
+
+  let idoms g (root:vertex) (topo:Topo.topo) (ghost exi_path : M.map vertex path)
+     : array int
+   requires { S.mem root (vertices g) }
+   requires { S.is_empty (preds g root) }
+   requires { forall v. v <> root -> S.mem v (vertices g) -> path_to g (Cons root (M.get exi_path v)) v }
+
+   requires { topological_sort g topo.Topo.order.elts topo.Topo.tsort.Topo.H.contents }
+   requires { S.(==) topo.Topo.tsort.Topo.H.defined (vertices g) }
+   requires { topo.Topo.order.length = S.cardinal (vertices g) }
+
+   ensures { forall i. 0 < i < S.cardinal (vertices g) ->
+              idomine g root (topo.Topo.order[result[i]]) (topo.Topo.order[i]) }
+   ensures { result[0] = 0 }
+   diverges
+   =
+    let a = Array.make (S.cardinal (vertices g)) (-1) in
+    a[0] <- 0;
+    for nv=1 to (S.cardinal (vertices g) - 1) do
+      'Start_body:
+      let v = topo.Topo.order[nv] in
+      let rec find_common n1 n2
+        raises  { Root -> idomine g root root v }
+        diverges
+       =
+        if n1 = n2 then n1
+        else
+        let n1, n2 = if n2 < n1 then (n1,n2) else (n2,n1) in
+        if a[n1] = 0 then raise Root
+        else find_common a[n1] n2
+      in
+    try
+      let p = ref (preds g v) in
+      assert { not (S.is_empty !p) };
+      let u = S.choose !p in
+      (if u = root then raise Root);
+      let nu = Topo.H.find topo.Topo.tsort u in
+      let idom_v = ref nu in
+      p := S.remove u !p;
+      while not (S.is_empty !p) do
+       let u = S.choose !p in
+       (if u = root then raise Root);
+       let nu = Topo.H.find topo.Topo.tsort u in
+       idom_v := find_common !idom_v nu;
+       p := S.remove u !p;
+      done;
+      a[nv] <- !idom_v;
+    with Root ->
+      a[nv] <- 0;
+    end
+    done;
+    a
+
+end
