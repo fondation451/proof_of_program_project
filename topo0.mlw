@@ -204,9 +204,48 @@ module Topo
     (forall u v:vertex.
       S.mem u m.defined /\ S.mem v m.defined /\ M.get m.contents u = M.get m.contents v
       -> u = v)
+    /\
+    (forall v:vertex.
+      S.mem v m.defined ->
+        forall u:vertex.
+          S.mem u (preds g v) -> S.mem u m.defined /\ M.get m.contents u < M.get m.contents v)
+
+
+  let update_seen_path (g:graph) (seen:marked) (old_seen_path:M.map vertex path) (v:vertex) (u:vertex): M.map vertex path
+    requires { S.mem u (vertices g) }
+    requires { S.mem v (vertices g) }
+    requires { S.subset (preds g v) (vertices g) }
+    requires { S.subset seen (vertices g) }
+    requires { S.mem u (preds g v) }
+
+    requires { not (S.mem v seen) }
+    requires { M.get old_seen_path v = Nil }
+    requires { forall a:vertex. S.mem a seen -> path_to g (Cons v (M.get old_seen_path a)) a }
+    requires { forall a:vertex. not (S.mem a seen) -> M.get old_seen_path a = Nil }
+
+    ensures { forall a:vertex. S.mem a seen -> path_to g (Cons u (M.get result a)) a }
+    ensures { path_to g (Cons u (M.get result v)) v }
+    ensures { forall a:vertex. not (S.mem a seen) -> M.get result a = Nil }
+  =
+    let tmp = ref seen in
+(*    let out = ref (Const.const Nil) in*)
+    let out = ref old_seen_path in
+    while not (S.is_empty !tmp) do
+      invariant { forall a:vertex. S.mem a (S.diff seen !tmp) -> path_to g (Cons u (M.get !out a)) a }
+      invariant { forall a:vertex. S.mem a !tmp -> a <> v }
+      invariant { M.get !out v = Nil }
+      invariant { S.subset !tmp seen }
+      invariant { forall a:vertex. not (S.mem a seen) -> M.get !out a = Nil }
+      variant { S.cardinal !tmp }
+      let a = S.choose !tmp in
+      out := M.set !out a (Cons v (M.get old_seen_path a));
+      tmp := S.remove a !tmp
+    done;
+    !out
 
   let rec dfs (g:graph) (v:vertex)
               (seen:marked) (tsort:H.t int)
+              (seen_path:M.map vertex path)
               : unit
     requires { inv g tsort }
     (* v est dans le graphe *)
@@ -218,6 +257,9 @@ module Topo
     requires { forall v:vertex. S.mem v seen /\ S.mem v (vertices g) -> not (S.mem v tsort.defined) }
     (* 3.6 *)
     requires { forall u:vertex. S.mem u (vertices g) /\ S.mem u tsort.defined -> M.get tsort.contents u < S.cardinal tsort.defined }
+    (* 3.8 *)
+    requires { forall a:vertex. S.mem a seen -> path_to g (Cons v (M.get seen_path a)) a }
+    requires { forall a:vertex. not (S.mem a seen) -> M.get seen_path a = Nil }
 
     variant { (S.cardinal (vertices g)) - (S.cardinal seen) }
 
@@ -231,7 +273,9 @@ module Topo
     (* 3.6 *)
     ensures { not S.mem v (old tsort.defined) -> M.get tsort.contents v = S.cardinal tsort.defined - 1 }
     ensures { forall u:vertex. S.mem u (vertices g) /\ S.mem u tsort.defined -> M.get tsort.contents u < S.cardinal tsort.defined }
-    raises  { Cycle_found -> true  }
+    (* 3.7 *)
+    ensures { not (S.mem v (old tsort.defined)) -> S.subset (preds g v) tsort.defined }
+    raises  { Cycle_found -> cycle_in g  }
    =
   'Init:
    if S.mem v seen then raise Cycle_found;
@@ -250,10 +294,14 @@ module Topo
       invariant { forall v:vertex. S.mem v seen' /\ S.mem v (vertices g) -> not (S.mem v tsort.defined) }
       (* 3.6 *)
       invariant { forall u:vertex. S.mem u (vertices g) /\ S.mem u tsort.defined -> M.get tsort.contents u < S.cardinal tsort.defined }
+      (* 3.7 *)
+      invariant { forall u:vertex. S.mem u (vertices g) /\ S.mem u (S.diff (preds g v) !p) -> S.mem u tsort.defined }
+      (* 3.8 *)
+      invariant { forall a:vertex. S.mem a seen -> path_to g (Cons v (M.get seen_path a)) a }
       variant { S.cardinal !p }
 
       let u = S.choose !p in
-      dfs g u seen' tsort;
+      dfs g u seen' tsort (update_seen_path g seen seen_path v u);
       p := S.remove u !p
       done;
     end;
@@ -278,7 +326,7 @@ module Topo
         invariant { forall u:vertex. S.mem u (vertices g) /\ S.mem u tsort.defined -> M.get tsort.contents u < S.cardinal tsort.defined }
         variant { S.cardinal !p }
         let u = S.choose !p in
-        dfs g u (S.empty) tsort;
+        dfs g u (S.empty) tsort (Const.const Nil);
         p := S.remove u !p
      done;
      tsort
