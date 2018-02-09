@@ -434,20 +434,69 @@ module Dominators
   lemma not_disjoint_mem:
     forall s1 s2: S.set vertex. not_disjoint s1 s2 <-> (exists x. S.mem x s1 /\ S.mem x s2)
 
- lemma not_disjoint_singleton:
+  lemma not_disjoint_singleton:
     forall s1: S.set vertex. forall x: vertex. not_disjoint s1 (S.singleton x) <-> S.mem x s1
+
+  predicate is_root (g:graph) (root:vertex) (exi_path:M.map vertex path) =
+    S.mem root (vertices g)
+    /\
+    S.is_empty (preds g root)
+    /\
+    forall v:vertex. v <> root -> S.mem v (vertices g) -> path_to g (Cons root (M.get exi_path v)) v
+
+  predicate topo_on_graph (g:graph) (topo:Topo.topo) =
+    topological_sort g topo.Topo.order.elts topo.Topo.tsort.Topo.H.contents
+    /\
+    S.(==) topo.Topo.tsort.Topo.H.defined (vertices g)
+    /\
+    topo.Topo.order.length = S.cardinal (vertices g)
+
+  lemma smaller_path:
+    forall g:graph. forall p:path. forall a b v:vertex.
+      S.mem a (vertices g) /\ S.mem b (vertices g) /\ S.mem v (vertices g)
+      -> path_to g (Cons a (Cons b p)) v -> path_to g (Cons b p) v
+
+  lemma path_in_edges:
+    forall g:graph. forall u v:vertex.
+      S.mem u (vertices g) -> S.mem v (vertices g) -> path_to g (Cons u Nil) v -> S.mem (u, v) (edges g)
+
+  lemma path_in_preds:
+    forall g:graph. forall u v:vertex.
+      S.mem u (vertices g) -> S.mem v (vertices g) -> path_to g (Cons u Nil) v -> S.mem u (preds g v)
+
+  lemma pred_equiv_path:
+    forall g:graph. forall p:path. forall u v:vertex.
+      S.mem v (vertices g) -> S.mem u (vertices g) -> (S.mem u (preds g v) <-> path_to g (Cons u Nil) v)
+
+  lemma path_not_nil:
+    forall g:graph. forall p:path. forall v:vertex.
+      S.mem v (vertices g) -> path_to g p v -> p <> Nil
+
+  lemma list_reduction:
+    forall p:path. p <> Nil -> exists q:path. exists u:vertex. p = Cons u q
+
+  lemma path_reduction:
+    forall g:graph. forall p:path. forall v:vertex.
+      S.mem v (vertices g) -> path_to g p v -> exists q:path. exists u:vertex. path_to g (Cons u q) v
+
+  lemma smallest_path:
+    forall g:graph. forall p:path. forall v:vertex.
+      S.mem v (vertices g) -> path_to g p v -> exists u:vertex. path_to g (Cons u Nil) v
+
+  lemma path_imp_pred:
+    forall g:graph. forall p:path. forall v:vertex.
+      S.mem v (vertices g) -> path_to g p v -> not (S.is_empty (preds g v))
+
+  lemma preds_not_empty:
+    forall g:graph. forall root:vertex. forall exi_path:M.map vertex path. forall v:vertex.
+      is_root g root exi_path -> not (S.is_empty (preds g v))
 
   exception Root
 
   let idoms g (root:vertex) (topo:Topo.topo) (ghost exi_path : M.map vertex path)
      : array int
-   requires { S.mem root (vertices g) }
-   requires { S.is_empty (preds g root) }
-   requires { forall v. v <> root -> S.mem v (vertices g) -> path_to g (Cons root (M.get exi_path v)) v }
-
-   requires { topological_sort g topo.Topo.order.elts topo.Topo.tsort.Topo.H.contents }
-   requires { S.(==) topo.Topo.tsort.Topo.H.defined (vertices g) }
-   requires { topo.Topo.order.length = S.cardinal (vertices g) }
+   requires { is_root g root exi_path }
+   requires { topo_on_graph g topo }
 
    ensures { forall i. 0 < i < S.cardinal (vertices g) ->
               idomine g root (topo.Topo.order[result[i]]) (topo.Topo.order[i]) }
@@ -457,37 +506,40 @@ module Dominators
     let a = Array.make (S.cardinal (vertices g)) (-1) in
     a[0] <- 0;
     for nv=1 to (S.cardinal (vertices g) - 1) do
+      (* La boucle calcule bien un immediate dominant par tour *)
+      invariant { forall i:int. 1 <= i < nv -> idomine g root (topo.Topo.order[a[i]]) (topo.Topo.order[i]) }
+
       'Start_body:
       let v = topo.Topo.order[nv] in
       let rec find_common n1 n2
         raises  { Root -> idomine g root root v }
         diverges
-       =
+      =
         if n1 = n2 then n1
         else
         let n1, n2 = if n2 < n1 then (n1,n2) else (n2,n1) in
         if a[n1] = 0 then raise Root
         else find_common a[n1] n2
       in
-    try
-      let p = ref (preds g v) in
-      assert { not (S.is_empty !p) };
-      let u = S.choose !p in
-      (if u = root then raise Root);
-      let nu = Topo.H.find topo.Topo.tsort u in
-      let idom_v = ref nu in
-      p := S.remove u !p;
-      while not (S.is_empty !p) do
-       let u = S.choose !p in
-       (if u = root then raise Root);
-       let nu = Topo.H.find topo.Topo.tsort u in
-       idom_v := find_common !idom_v nu;
-       p := S.remove u !p;
-      done;
-      a[nv] <- !idom_v;
-    with Root ->
-      a[nv] <- 0;
-    end
+      try
+        let p = ref (preds g v) in
+        assert { not (S.is_empty !p) };
+        let u = S.choose !p in
+        (if u = root then raise Root);
+        let nu = Topo.H.find topo.Topo.tsort u in
+        let idom_v = ref nu in
+        p := S.remove u !p;
+        while not (S.is_empty !p) do
+          let u = S.choose !p in
+          (if u = root then raise Root);
+          let nu = Topo.H.find topo.Topo.tsort u in
+          idom_v := find_common !idom_v nu;
+          p := S.remove u !p;
+        done;
+        a[nv] <- !idom_v;
+      with Root ->
+        a[nv] <- 0;
+      end
     done;
     a
 
